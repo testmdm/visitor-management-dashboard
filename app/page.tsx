@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 interface SiteMetrics {
   site_id: string;
@@ -45,17 +45,17 @@ interface ApiResp {
 }
 
 function fmtUptime(s: number): string {
-  if (!s || s < 0) return "-";
+  if (!s || s < 0) return "\u2014";
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  if (h >= 48) return `${Math.floor(h / 24)}h ${h % 24}j`;
-  if (h > 0) return `${h}j ${m}m`;
+  if (h >= 48) return `${Math.floor(h / 24)}d ${h % 24}h`;
+  if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
 }
 
 function fmtTime(ts: number | null): string {
-  if (!ts) return "-";
-  return new Date(ts).toLocaleString("id-ID", {
+  if (!ts) return "\u2014";
+  return new Date(ts).toLocaleString("en-US", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -64,10 +64,16 @@ function fmtTime(ts: number | null): string {
   });
 }
 
+function fmtNum(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
 export default function OverviewPage() {
   const [data, setData] = useState<ApiResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [onlineOnly, setOnlineOnly] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -90,81 +96,127 @@ export default function OverviewPage() {
 
   const agg = data?.aggregate;
 
+  const sites = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (data?.sites || []).filter((s) => {
+      if (onlineOnly && !s.online) return false;
+      if (!q) return true;
+      return s.name.toLowerCase().includes(q) || (s.label || "").toLowerCase().includes(q);
+    });
+  }, [data?.sites, query, onlineOnly]);
+
   return (
     <div className="wrap">
-      <div className="header">
-        <h1>Visitor Management — Multi-Site</h1>
-        <span className="sub">via ThingsBoard · nama site = nama device TB</span>
-      </div>
+      <nav className="topbar">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true" />
+          <div>
+            <div className="brand-title">Visitor Management</div>
+            <div className="brand-sub">Multi-site operations \u00b7 via ThingsBoard</div>
+          </div>
+        </div>
+        <div className="topbar-right">
+          {agg && (
+            <span className={`pill ${agg.offlineSites > 0 ? "warn" : "ok"}`}>
+              <span className="dot" aria-hidden="true" />
+              {agg.onlineSites}/{agg.totalSites} sites online
+            </span>
+          )}
+          <button className="btn-ghost" onClick={load}>Refresh</button>
+        </div>
+      </nav>
 
       <div className="toolbar">
-        <button onClick={load}>Muat ulang</button>
         <span>
           {loading
-            ? "Memuat…"
+            ? "Loading\u2026"
             : updatedAt
-              ? `Terakhir update: ${new Date(updatedAt).toLocaleTimeString("id-ID")} (auto 30s)`
+              ? `Last updated: ${new Date(updatedAt).toLocaleTimeString("en-US")} (auto-refresh 30s)`
               : ""}
-          {data?.tookMs != null ? ` · fetch ${data.tookMs}ms` : ""}
+          {data?.tookMs != null ? ` \u00b7 fetch ${data.tookMs}ms` : ""}
         </span>
       </div>
 
       {!data?.ok && !loading && (
         <div className="err">
-          Gagal memuat data: {data?.error || "unknown"}
+          Failed to load data: {data?.error || "unknown"}
           <br />
-          Periksa env TB_BASE_URL / TB_USERNAME / TB_PASSWORD di server dan
-          konektivitas ke ThingsBoard.
+          Check the server env TB_BASE_URL / TB_USERNAME / TB_PASSWORD and ThingsBoard connectivity.
         </div>
       )}
 
       {agg && (
-        <div className="grid-kpi">
-          <div className="kpi"><div className="v">{agg.onlineSites}/{agg.totalSites}</div><div className="l">Site online</div></div>
-          <div className="kpi"><div className="v">{agg.count_in}</div><div className="l">Masuk (hari ini)</div></div>
-          <div className="kpi"><div className="v">{agg.count_out}</div><div className="l">Keluar (hari ini)</div></div>
-          <div className="kpi"><div className="v">{agg.occupancy}</div><div className="l">Di dalam (semua site)</div></div>
-          <div className="kpi"><div className="v">{agg.total_visitors}</div><div className="l">Total visitor</div></div>
-          <div className="kpi"><div className="v">{agg.ambiguous_pending}</div><div className="l">Perlu konfirmasi</div></div>
-        </div>
-      )}
-
-      <div className="grid-sites">
-        {(data?.sites || []).map((s) => (
-          <div key={s.deviceId} className={`card${s.online ? "" : " off"}`}>
-            <span className={`badge ${s.online ? "on" : "off"}`}>
-              {s.online ? "● ONLINE" : "● OFFLINE"}
-            </span>
-            <h3 style={{ marginTop: 8 }}>{s.name}</h3>
-            {s.label && <div className="meta">{s.label}</div>}
-            <div className="meta">
-              Terakhir terlihat: {fmtTime(s.lastSeen)}
-              {s.latencyMs != null ? ` · ${s.latencyMs}ms` : ""}
+        <section aria-label="Network summary">
+          <div className="grid-kpi">
+            <div className="kpi">
+              <div className="v">{agg.onlineSites}<span className="v-sub">/{agg.totalSites}</span></div>
+              <div className="l">Sites online</div>
+              {agg.offlineSites > 0 && <div className="l danger">{agg.offlineSites} offline</div>}
             </div>
-            {s.error && !s.metrics && (
-              <div className="meta" style={{ color: "#fca5a5" }}>{s.error}</div>
-            )}
-            {s.metrics && (
-              <div style={{ marginTop: 8 }}>
-                <div className="row"><span>Masuk / Keluar</span><b>{s.metrics.count_in} / {s.metrics.count_out}</b></div>
-                <div className="row"><span>Di dalam</span><b>{s.metrics.occupancy}</b></div>
-                <div className="row"><span>Total visitor</span><b>{s.metrics.total_visitors}</b></div>
-                <div className="row"><span>Perlu konfirmasi</span><b>{s.metrics.ambiguous_pending}</b></div>
-                <div className="row"><span>Pipeline</span><b>{s.metrics.pipeline_running ? "jalan" : "berhenti"}</b></div>
-                <div className="row"><span>FPS / Uptime</span><b>{s.metrics.avg_fps} / {fmtUptime(s.metrics.uptime_s)}</b></div>
-              </div>
-            )}
-            <a className="btn" href={`/site/${s.deviceId}`}>Detail 24 jam →</a>
+            <div className="kpi"><div className="v">{fmtNum(agg.count_in)}</div><div className="l">Check-ins \u00b7 today</div></div>
+            <div className="kpi"><div className="v">{fmtNum(agg.count_out)}</div><div className="l">Check-outs \u00b7 today</div></div>
+            <div className="kpi"><div className="v">{fmtNum(agg.occupancy)}</div><div className="l">Inside \u00b7 all sites</div></div>
+            <div className="kpi"><div className="v">{fmtNum(agg.total_visitors)}</div><div className="l">Total visitors</div></div>
+            <div className="kpi"><div className="v">{fmtNum(agg.ambiguous_pending)}</div><div className="l">Pending review</div></div>
           </div>
-        ))}
-      </div>
-
-      {data?.ok && (data?.sites || []).length === 0 && !loading && (
-        <div className="err">
-          Tidak ada device tipe visitor-site di ThingsBoard. Buat device per site
-          (tipe visitor-site) — lihat docs/THINGSBOARD_SETUP_CE.md.
-        </div>
+        </section>
       )}
+
+      <section aria-label="Sites">
+        <div className="section-head">
+          <h2>Sites</h2>
+          <div className="filters">
+            <input className="search" type="search" placeholder="Search sites\u2026" value={query}
+              onChange={(e) => setQuery(e.target.value)} aria-label="Search sites" />
+            <label className="check">
+              <input type="checkbox" checked={onlineOnly} onChange={(e) => setOnlineOnly(e.target.checked)} />
+              Online only
+            </label>
+          </div>
+        </div>
+
+        <div className="grid-sites">
+          {sites.map((s) => (
+            <article key={s.deviceId} className={`card${s.online ? "" : " off"}`}>
+              <div className="card-head">
+                <div>
+                  <h3>{s.name}</h3>
+                  {s.label && <div className="meta">{s.label}</div>}
+                </div>
+                <span className={`badge ${s.online ? "on" : "off"}`}>
+                  {s.online ? "\u25cf ONLINE" : "\u25cf OFFLINE"}
+                </span>
+              </div>
+              <div className="meta">
+                Last seen: {fmtTime(s.lastSeen)}
+                {s.latencyMs != null ? ` \u00b7 ${s.latencyMs}ms` : ""}
+              </div>
+              {s.error && !s.metrics && (
+                <div className="meta" style={{ color: "#fca5a5" }}>{s.error}</div>
+              )}
+              {s.metrics && (
+                <dl className="metrics">
+                  <div><dt>Check-in / out</dt><dd>{s.metrics.count_in} / {s.metrics.count_out}</dd></div>
+                  <div><dt>Inside now</dt><dd>{s.metrics.occupancy}</dd></div>
+                  <div><dt>Total visitors</dt><dd>{s.metrics.total_visitors}</dd></div>
+                  <div><dt>Pending review</dt><dd>{s.metrics.ambiguous_pending}</dd></div>
+                  <div><dt>Pipeline</dt><dd>{s.metrics.pipeline_running ? "Running" : "Stopped"}</dd></div>
+                  <div><dt>FPS / Uptime</dt><dd>{s.metrics.avg_fps} / {fmtUptime(s.metrics.uptime_s)}</dd></div>
+                </dl>
+              )}
+              <a className="btn" href={`/site/${s.deviceId}`}>View 24h details \u2192</a>
+            </article>
+          ))}
+        </div>
+
+        {data?.ok && sites.length === 0 && !loading && (
+          <div className="err">
+            {(data?.sites || []).length === 0
+              ? "No visitor-site devices found in ThingsBoard. Create one device per site first."
+              : "No sites match the current filter."}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

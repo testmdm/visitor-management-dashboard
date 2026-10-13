@@ -1,49 +1,51 @@
 # Visitor Management Dashboard (multi-site via ThingsBoard CE)
 
-Dashboard terpusat untuk semua site visitor-AI. Data ditarik dari ThingsBoard
-(VPS publik). **Nama site = nama device di ThingsBoard** — tambah site cukup
-buat device baru (tipe `visitor-site`), tanpa redeploy dashboard.
+Central management dashboard for all visitor-AI sites. Data is pulled from a
+public ThingsBoard instance. **The site name is the ThingsBoard device name**
+\u2014 adding a site means creating a new device (type `visitor-site`); no
+dashboard redeploy is needed.
 
-## Struktur
+## Structure
 
 ```
-app/page.tsx                  ← overview semua site (grid + agregat)
-app/site/[deviceId]/page.tsx  ← drill-down per site (grafik 24 jam)
-app/api/sites/route.ts        ← agregat (server-side, pegang JWT TB)
-app/api/sites/[deviceId]/route.ts ← timeseries 24 jam (server-side)
-lib/tb.ts                     ← client TB (login, cache JWT, fetch)
+app/page.tsx                    \u2190 overview: network KPIs + site grid + status
+app/site/[deviceId]/page.tsx    \u2190 per-site drill-down (24h chart)
+app/api/sites/route.ts          \u2190 aggregate (server-side, holds the TB JWT)
+app/api/sites/[deviceId]/route.ts \u2190 24h timeseries (server-side)
+lib/tb.ts                       \u2190 TB client (login, cached JWT, fetch)
 ```
 
-Kredensial TB **hanya di server** (Route Handler). Env `TB_*` tanpa prefix
-`NEXT_PUBLIC_` agar tidak bocor ke browser.
+TB credentials live **server-side only** (Route Handlers). Env vars use no
+`NEXT_PUBLIC_` prefix so they never leak to the browser.
 
-## Setup lokal
+## Local setup
 
 ```bash
 npm install
-cp .env.example .env.local   # isi TB_BASE_URL / TB_USERNAME / TB_PASSWORD
+cp .env.example .env.local   # fill TB_BASE_URL / TB_USERNAME / TB_PASSWORD
 npm run dev                  # http://localhost:3001
 ```
 
-## Deploy ke Vercel
+## Deploy to Vercel
 
-1. Push repo ini ke GitHub (repo terpisah).
-2. Vercel → New Project → import repo.
+1. Push this repo to GitHub (standalone repo).
+2. Vercel \u2192 New Project \u2192 import the repo.
 3. Environment Variables (Production):
-   - `TB_BASE_URL` = mis. `https://tb-anda.com`
-   - `TB_USERNAME` = user read-only (Customer User)
-   - `TB_PASSWORD` = password user itu
+   - `TB_BASE_URL` = e.g. `https://tb-example.com`
+   - `TB_USERNAME` = read-only user (Customer User)
+   - `TB_PASSWORD` = that user\u2019s password
    - `TB_DEVICE_TYPE` = `visitor-site`
    - `TB_OFFLINE_AFTER_S` = `90`
-4. Deploy. Tambah site baru = buat device di TB saja.
+4. Deploy. Adding a new site = create the device in TB only.
 
-## Status online/offline
+## Online / offline status
 
-Online = latest telemetry device berumur < `TB_OFFLINE_AFTER_S` detik.
-Site yang backend-nya mati berhenti kirim telemetry → otomatis 🔴.
+Online = the device\u2019s latest telemetry is younger than `TB_OFFLINE_AFTER_S`
+seconds. A site whose backend stops pushing telemetry automatically shows \u25cf OFFLINE.
 
-## Prasyarat ThingsBoard
+## ThingsBoard prerequisites
 
-Lihat `../visitor-ai-enterprise/docs/THINGSBOARD_SETUP_CE.md`:
-buat device per site (tipe `visitor-site`), catat token ke config backend site,
-buat user read-only dan share device ke customer-nya.
+See `../visitor-ai-enterprise/docs/THINGSBOARD_SETUP_CE.md`:
+create one device per site (type `visitor-site`), copy its token into the
+site backend config, and create a read-only user with the devices shared to
+its customer.
