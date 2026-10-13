@@ -77,7 +77,7 @@ function authed(token: string): AxiosInstance {
   });
 }
 
-/** GET with one automatic re-login on 401. */
+/** GET with one automatic re-login on 401. Returns status-aware result. */
 async function tbGet<T>(path: string, params?: Record<string, unknown>): Promise<T> {
   let t = await token();
   try {
@@ -94,13 +94,33 @@ async function tbGet<T>(path: string, params?: Record<string, unknown>): Promise
   }
 }
 
+function isForbidden(e: unknown): boolean {
+  return axios.isAxiosError(e) && e.response?.status === 403;
+}
+
 export async function listSiteDevices(): Promise<TbDevice[]> {
-  const data = await tbGet<{ data: TbDevice[] }>("/api/tenant/devices", {
-    pageSize: 100,
-    page: 0,
-    type: TB_DEVICE_TYPE,
-  });
-  return data.data ?? [];
+  // Type filter is OPTIONAL: when TB_DEVICE_TYPE is empty, list every device the
+  // user may see. (Lets the dashboard work regardless of the device type set in TB.)
+  const typeFilter = (TB_DEVICE_TYPE || "").trim();
+  const params: Record<string, unknown> = { pageSize: 100, page: 0 };
+  if (typeFilter) params.type = typeFilter;
+
+  // 1) Tenant-scoped listing (works for tenant admins / sysadmins).
+  try {
+    const data = await tbGet<{ data: TbDevice[] }>("/api/tenant/devices", params);
+    return data.data ?? [];
+  } catch (e: unknown) {
+    if (!isForbidden(e)) throw e;
+    // 2) Fallback for CUSTOMER_USER: list devices of our own customer.
+    const me = await tbGet<{ customerId?: { id?: string } }>("/api/auth/user");
+    const customerId = me?.customerId?.id;
+    if (!customerId) throw e;
+    const data = await tbGet<{ data: TbDevice[] }>(
+      `/api/customer/${customerId}/devices`,
+      params
+    );
+    return data.data ?? [];
+  }
 }
 
 export async function latestTelemetry(
