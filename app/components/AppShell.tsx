@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import ThemeToggle from "./ThemeToggle";
 
 const NAV = [
   { href: "/", label: "Overview", icon: "▦" },
@@ -70,7 +71,10 @@ export default function AppShell({
             <h1 className="page-title">{title}</h1>
             {subtitle && <div className="page-sub">{subtitle}</div>}
           </div>
-          <div className="topbar-right">{actions}</div>
+          <div className="topbar-right">
+            <ThemeToggle />
+            {actions}
+          </div>
         </header>
         <main className="content">{children}</main>
       </div>

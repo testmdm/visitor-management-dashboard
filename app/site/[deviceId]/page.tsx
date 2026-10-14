@@ -24,6 +24,24 @@ function fmtHour(ts: number): string {
   return new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function chartTheme(): {
+  grid: string;
+  axis: string;
+  tooltipBg: string;
+  tooltipBorder: string;
+} {
+  if (typeof document !== "undefined") {
+    const cs = getComputedStyle(document.documentElement);
+    const line = cs.getPropertyValue("--line").trim();
+    const muted = cs.getPropertyValue("--muted").trim();
+    const panel = cs.getPropertyValue("--panel").trim();
+    if (line && muted && panel) {
+      return { grid: line, axis: muted, tooltipBg: panel, tooltipBorder: line };
+    }
+  }
+  return { grid: "#263049", axis: "#9aa3b8", tooltipBg: "#141926", tooltipBorder: "#263049" };
+}
+
 export default function SiteDetail({ params }: { params: { deviceId: string } }) {
   const [data, setData] = useState<DetailResp | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
@@ -60,6 +78,7 @@ export default function SiteDetail({ params }: { params: { deviceId: string } })
 
   const totals = rows.reduce((a, r) => ({ checkins: a.checkins + r.checkins, checkouts: a.checkouts + r.checkouts }), { checkins: 0, checkouts: 0 });
   const lastInside = rows.length > 0 ? rows[rows.length - 1].inside : 0;
+  const ct = chartTheme();
   const site = sites.find((x) => x.deviceId === params.deviceId);
   const idx = sites.findIndex((x) => x.deviceId === params.deviceId);
   const prev = idx > 0 ? sites[idx - 1] : null;
@@ -106,10 +125,14 @@ export default function SiteDetail({ params }: { params: { deviceId: string } })
             <div style={{ width: "100%", height: 440 }}>
               <ResponsiveContainer>
                 <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: -12 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#263049" />
-                  <XAxis dataKey="t" stroke="#9aa3b8" fontSize={11} tickLine={false} minTickGap={40} />
-                  <YAxis stroke="#9aa3b8" fontSize={11} tickLine={false} allowDecimals={false} />
-                  <Tooltip contentStyle={{ background: "#141926", border: "1px solid #263049", borderRadius: 10 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} />
+                  <XAxis dataKey="t" stroke={ct.axis} fontSize={12} tickLine={false} minTickGap={40} />
+                  <YAxis stroke={ct.axis} fontSize={12} tickLine={false} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ background: ct.tooltipBg, border: `1px solid ${ct.tooltipBorder}`, borderRadius: 10 }}
+                    labelStyle={{ color: ct.axis }}
+                    itemStyle={{ color: ct.axis }}
+                  />
                   <Legend />
                   <Line type="monotone" dataKey="checkins" name="Check-ins" stroke="#22c55e" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="checkouts" name="Check-outs" stroke="#3b82f6" strokeWidth={2} dot={false} />
