@@ -1,15 +1,13 @@
 /**
  * ThingsBoard CE REST client — SERVER-SIDE ONLY.
  *
- * Never import this module from a client component. All credentials come from
- * server-only env vars (TB_BASE_URL, TB_USERNAME, TB_PASSWORD) which must NOT
- * have the NEXT_PUBLIC_ prefix. The JWT is cached in memory and refreshed on 401.
+ * Auth model: every dashboard user logs in with their OWN TB account.
+ * The caller's JWT is passed per-request (from the httpOnly session cookie).
+ * There is no shared service account and no anonymous access.
  */
 import axios, { AxiosInstance } from "axios";
 
 const TB_BASE = (process.env.TB_BASE_URL || "").replace(/\/$/, "");
-const TB_USER = process.env.TB_USERNAME || "";
-const TB_PASS = process.env.TB_PASSWORD || "";
 export const TB_DEVICE_TYPE = process.env.TB_DEVICE_TYPE || "visitor-site";
 export const TB_OFFLINE_AFTER_S = Number(process.env.TB_OFFLINE_AFTER_S || "90");
 
@@ -37,68 +35,25 @@ export interface TbTsPoint {
   value: string;
 }
 
-function assertConfigured() {
-  if (!TB_BASE || !TB_USER || !TB_PASS) {
-    throw new Error(
-      "ThingsBoard env not configured (TB_BASE_URL / TB_USERNAME / TB_PASSWORD)"
-    );
+function assertBase() {
+  if (!TB_BASE) {
+    throw new Error("TB_BASE_URL not configured on the server");
   }
 }
 
-// ── JWT cache (module scope = per server instance) ──────────────────────────
-let cachedToken: string | null = null;
-let cachedAt = 0;
-const JWT_TTL_MS = 1000 * 60 * 60 * 8; // re-login at most every 8h (also on 401)
-
-async function login(): Promise<string> {
-  assertConfigured();
-  const res = await axios.post(
-    `${TB_BASE}/api/auth/login`,
-    { username: TB_USER, password: TB_PASS },
-    { timeout: 10000 }
-  );
-  const token = res.data?.token as string | undefined;
-  if (!token) throw new Error("ThingsBoard login returned no token");
-  cachedToken = token;
-  cachedAt = Date.now();
-  return token;
-}
-
-async function token(): Promise<string> {
-  if (cachedToken && Date.now() - cachedAt < JWT_TTL_MS) return cachedToken;
-  return login();
-}
-
-function authed(token: string): AxiosInstance {
-  return axios.create({
+/** GET with the caller's own JWT. Throws { status: 401 } when it expires. */
+async function tbGet<T>(token: string, path: string, params?: Record<string, unknown>): Promise<T> {
+  assertBase();
+  const inst: AxiosInstance = axios.create({
     baseURL: TB_BASE,
     timeout: 10000,
     headers: { "X-Authorization": `Bearer ${token}` },
   });
+  const res = await inst.get<T>(path, { params });
+  return res.data;
 }
 
-/** GET with one automatic re-login on 401. Returns status-aware result. */
-async function tbGet<T>(path: string, params?: Record<string, unknown>): Promise<T> {
-  let t = await token();
-  try {
-    const res = await authed(t).get<T>(path, { params });
-    return res.data;
-  } catch (e: unknown) {
-    const status = axios.isAxiosError(e) ? e.response?.status : undefined;
-    if (status === 401) {
-      t = await login();
-      const res = await authed(t).get<T>(path, { params });
-      return res.data;
-    }
-    throw e;
-  }
-}
-
-function isForbidden(e: unknown): boolean {
-  return axios.isAxiosError(e) && e.response?.status === 403;
-}
-
-export async function listSiteDevices(): Promise<TbDevice[]> {
+export async function listSiteDevices(token: string): Promise<TbDevice[]> {
   // Type filter is OPTIONAL: when TB_DEVICE_TYPE is empty, list every device the
   // user may see. (Lets the dashboard work regardless of the device type set in TB.)
   const typeFilter = (TB_DEVICE_TYPE || "").trim();
@@ -107,15 +62,16 @@ export async function listSiteDevices(): Promise<TbDevice[]> {
 
   // 1) Tenant-scoped listing (works for tenant admins / sysadmins).
   try {
-    const data = await tbGet<{ data: TbDevice[] }>("/api/tenant/devices", params);
+    const data = await tbGet<{ data: TbDevice[] }>(token, "/api/tenant/devices", params);
     return data.data ?? [];
   } catch (e: unknown) {
-    if (!isForbidden(e)) throw e;
+    if (!(axios.isAxiosError(e) && e.response?.status === 403)) throw e;
     // 2) Fallback for CUSTOMER_USER: list devices of our own customer.
-    const me = await tbGet<{ customerId?: { id?: string } }>("/api/auth/user");
+    const me = await tbGet<{ customerId?: { id?: string } }>(token, "/api/auth/user");
     const customerId = me?.customerId?.id;
     if (!customerId) throw e;
     const data = await tbGet<{ data: TbDevice[] }>(
+      token,
       `/api/customer/${customerId}/devices`,
       params
     );
@@ -124,10 +80,12 @@ export async function listSiteDevices(): Promise<TbDevice[]> {
 }
 
 export async function latestTelemetry(
+  token: string,
   deviceId: string,
   keys: readonly string[] = TELEMETRY_KEYS
 ): Promise<Record<string, TbTsPoint>> {
   const data = await tbGet<Record<string, TbTsPoint[]>>(
+    token,
     `/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries`,
     { keys: keys.join(",") }
   );
@@ -139,6 +97,7 @@ export async function latestTelemetry(
 }
 
 export async function historyTelemetry(
+  token: string,
   deviceId: string,
   keys: readonly string[],
   startTs: number,
@@ -147,6 +106,7 @@ export async function historyTelemetry(
   agg = "SUM"
 ): Promise<Record<string, TbTsPoint[]>> {
   return tbGet<Record<string, TbTsPoint[]>>(
+    token,
     `/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries`,
     { keys: keys.join(","), startTs, endTs, interval: intervalMs, agg }
   );

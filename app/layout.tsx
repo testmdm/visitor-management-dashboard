@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Visitor Management — Multi-Site Overview",
-  description: "Central management dashboard for all visitor-AI sites (via ThingsBoard)",
+  description: "Central management dashboard for all visitor-AI sites",
 };
 
 // Runs before paint: applies stored theme (or OS preference, dark fallback)

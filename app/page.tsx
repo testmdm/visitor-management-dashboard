@@ -65,7 +65,7 @@ export default function OverviewPage() {
   return (
     <AppShell
       title="Network overview"
-      subtitle={updatedAt ? `Last updated ${new Date(updatedAt).toLocaleTimeString("en-US")} \u00b7 auto-refresh 30s${data?.tookMs != null ? ` \u00b7 fetch ${data.tookMs}ms` : ""}` : "Multi-site operations via ThingsBoard"}
+      subtitle={updatedAt ? `Last updated ${new Date(updatedAt).toLocaleTimeString("en-US")} \u00b7 auto-refresh 30s${data?.tookMs != null ? ` \u00b7 fetch ${data.tookMs}ms` : ""}` : "Multi-site operations console"}
       connection={agg ? { online: agg.onlineSites, total: agg.totalSites } : null}
       actions={<button className="btn-ghost" onClick={load}>Refresh</button>}
     >

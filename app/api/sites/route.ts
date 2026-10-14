@@ -5,6 +5,7 @@
  * One slow device must not fail the whole response -> Promise.allSettled.
  */
 import { NextResponse } from "next/server";
+import axios from "axios";
 import {
   TELEMETRY_KEYS,
   TB_OFFLINE_AFTER_S,
@@ -13,6 +14,7 @@ import {
   num,
   str,
 } from "@/lib/tb";
+import { getSessionTokens, tbRefresh } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,18 +30,57 @@ function withTimeout<T>(p: Promise<T>, ms = FETCH_TIMEOUT_MS): Promise<T> {
   ]);
 }
 
+function isUnauthorized(e: unknown): boolean {
+  return axios.isAxiosError(e) && e.response?.status === 401;
+}
+
 export async function GET() {
   const startedAt = Date.now();
-  try {
-    const devices = await listSiteDevices();
+  let { token, refresh } = getSessionTokens();
+  if (!token) {
+    return NextResponse.json({ ok: false, error: "Not signed in" }, { status: 401 });
+  }
 
-    const settled = await Promise.allSettled(
+  async function loadSites(t: string) {
+    const devices = await listSiteDevices(t);
+    return Promise.allSettled(
       devices.map(async (d) => {
         const t0 = Date.now();
-        const ts = await withTimeout(latestTelemetry(d.id.id, TELEMETRY_KEYS));
+        const ts = await withTimeout(latestTelemetry(t, d.id.id, TELEMETRY_KEYS));
         return { device: d, ts, latencyMs: Date.now() - t0 };
       })
     );
+  }
+
+  let settled: PromiseSettledResult<{
+    device: Awaited<ReturnType<typeof listSiteDevices>>[number];
+    ts: Record<string, { ts: number; value: string }>;
+    latencyMs: number;
+  }>[];
+  let devices: Awaited<ReturnType<typeof listSiteDevices>>;
+  try {
+    devices = await listSiteDevices(token);
+    settled = await loadSites(token);
+  } catch (e: unknown) {
+    if (!isUnauthorized(e) || !refresh) {
+      const message = e instanceof Error ? e.message : String(e);
+      const status = isUnauthorized(e) ? 401 : 502;
+      return NextResponse.json({ ok: false, error: message }, { status });
+    }
+    // Session expired — try one refresh, then retry once.
+    const nt = await tbRefresh(refresh);
+    if (!nt) {
+      return NextResponse.json({ ok: false, error: "Session expired. Please sign in again." }, { status: 401 });
+    }
+    token = nt;
+    try {
+      devices = await listSiteDevices(token);
+      settled = await loadSites(token);
+    } catch (e2: unknown) {
+      const message = e2 instanceof Error ? e2.message : String(e2);
+      return NextResponse.json({ ok: false, error: message }, { status: 502 });
+    }
+  }
 
     const now = Date.now();
     const sites = settled.map((r, i) => {
@@ -106,8 +147,4 @@ export async function GET() {
       aggregate: agg,
       sites,
     });
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, error: message }, { status: 502 });
-  }
 }
