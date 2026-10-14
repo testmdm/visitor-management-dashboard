@@ -29,7 +29,11 @@ export default function LoginPage() {
       });
       const j = await res.json().catch(() => ({}));
       if (res.ok && j.ok) {
+        // Ensure the httpOnly session cookie set by the login response is
+        // committed before we navigate, so the guard on "/" sees a valid
+        // session on its very first /api/auth/me check (no blank/redirect loop).
         router.replace("/");
+        router.refresh();
         return;
       }
       setError(j.error || "Sign-in failed. Please try again.");

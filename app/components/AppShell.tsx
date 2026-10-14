@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import ThemeToggle from "./ThemeToggle";
 
@@ -35,18 +35,31 @@ export default function AppShell({
   // on a 401. On no/expired session we bounce to /login.
   const [checking, setChecking] = useState(true);
   const [me, setMe] = useState<Me>(null);
+  const redirected = useRef(false);
 
   const verify = useCallback(async () => {
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" });
-      if (!res.ok) {
-        router.replace("/login");
-        return;
+      if (res.ok) {
+        const j = await res.json();
+        if (j.ok) {
+          redirected.current = false;
+          setMe({ name: j.name, email: j.email, authority: j.authority });
+          return;
+        }
       }
-      const j = await res.json();
-      setMe(j.ok ? { name: j.name, email: j.email, authority: j.authority } : null);
+      // No valid session — bounce to login exactly once.
+      if (!redirected.current) {
+        redirected.current = true;
+        router.replace("/login");
+      }
+      setMe(null);
     } catch {
-      router.replace("/login");
+      if (!redirected.current) {
+        redirected.current = true;
+        router.replace("/login");
+      }
+      setMe(null);
     } finally {
       setChecking(false);
     }
@@ -78,8 +91,17 @@ export default function AppShell({
   }
 
   if (!me) {
-    // verify() already redirected; render nothing while navigating.
-    return null;
+    // Session invalid and redirect to /login is in flight. Render a splash
+    // (never null) so the browser never shows a blank white screen.
+    return (
+      <div className="auth-splash" role="status" aria-live="polite">
+        <div className="auth-splash-card">
+          <span className="brand-mark" aria-hidden="true" />
+          <div className="auth-splash-title">Visitor Management</div>
+          <div className="auth-splash-sub">Redirecting to sign in…</div>
+        </div>
+      </div>
+    );
   }
 
   return (
