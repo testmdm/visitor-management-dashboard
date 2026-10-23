@@ -12,11 +12,11 @@ import {
   YAxis,
 } from "recharts";
 import AppShell from "../../components/AppShell";
-import { fmtNum, type Site, type SitesResp } from "../../components/types";
+import { fmtDuration, fmtNum, type Site, type SitesResp } from "../../components/types";
 
 interface Pt { ts: number; value: number; }
 interface DetailResp { ok: boolean; error?: string; hours?: number; series?: Record<string, Pt[]>; }
-interface Row { t: string; checkins: number; checkouts: number; inside: number; }
+interface Row { t: string; visitors: number; overstays: number; avgDurationS: number; }
 
 const HOURS = [24, 72, 168];
 
@@ -69,15 +69,31 @@ export default function SiteDetail({ params }: { params: { deviceId: string } })
   const s = data?.series;
   const rows: Row[] = useMemo(() => {
     if (!s) return [];
-    const byTs = new Map<number, { checkins: number; checkouts: number; inside: number }>();
-    for (const p of s.count_in || []) { const e = byTs.get(p.ts) || { checkins: 0, checkouts: 0, inside: 0 }; e.checkins = p.value; byTs.set(p.ts, e); }
-    for (const p of s.count_out || []) { const e = byTs.get(p.ts) || { checkins: 0, checkouts: 0, inside: 0 }; e.checkouts = p.value; byTs.set(p.ts, e); }
-    for (const p of s.occupancy || []) { const e = byTs.get(p.ts) || { checkins: 0, checkouts: 0, inside: 0 }; e.inside = p.value; byTs.set(p.ts, e); }
+    const byTs = new Map<number, { visitors: number; overstays: number; avgDurationS: number }>();
+    const put = (key: string, field: "visitors" | "overstays" | "avgDurationS") => {
+      for (const p of s[key] || []) {
+        const e = byTs.get(p.ts) || { visitors: 0, overstays: 0, avgDurationS: 0 };
+        e[field] = p.value;
+        byTs.set(p.ts, e);
+      }
+    };
+    put("uniq_visitor", "visitors");
+    put("overstay_count", "overstays");
+    put("avg_duration_s", "avgDurationS");
     return Array.from(byTs.entries()).sort((a, b) => a[0] - b[0]).map(([ts, e]) => ({ t: fmtHour(ts), ...e }));
   }, [s]);
 
-  const totals = rows.reduce((a, r) => ({ checkins: a.checkins + r.checkins, checkouts: a.checkouts + r.checkouts }), { checkins: 0, checkouts: 0 });
-  const lastInside = rows.length > 0 ? rows[rows.length - 1].inside : 0;
+  const totals = rows.reduce(
+    (a, r) => ({
+      visitors: a.visitors + r.visitors,
+      overstays: a.overstays + r.overstays,
+      durSum: a.durSum + r.avgDurationS * (r.visitors > 0 ? 1 : 0),
+      durN: a.durN + (r.visitors > 0 && r.avgDurationS > 0 ? 1 : 0),
+    }),
+    { visitors: 0, overstays: 0, durSum: 0, durN: 0 }
+  );
+  const lastRow = rows.length > 0 ? rows[rows.length - 1] : null;
+  const overallAvgDuration = totals.durN > 0 ? Math.round(totals.durSum / totals.durN) : 0;
   const ct = chartTheme();
   const site = sites.find((x) => x.deviceId === params.deviceId);
   const idx = sites.findIndex((x) => x.deviceId === params.deviceId);
@@ -117,9 +133,10 @@ export default function SiteDetail({ params }: { params: { deviceId: string } })
       {data?.ok && (
         <>
           <div className="grid-kpi">
-            <div className="kpi"><div className="v">{fmtNum(totals.checkins)}</div><div className="l">Check-ins \u00b7 {hours}h</div></div>
-            <div className="kpi"><div className="v">{fmtNum(totals.checkouts)}</div><div className="l">Check-outs \u00b7 {hours}h</div></div>
-            <div className="kpi"><div className="v">{fmtNum(lastInside)}</div><div className="l">Inside \u00b7 latest</div></div>
+            <div className="kpi"><div className="v">{fmtNum(totals.visitors)}</div><div className="l">Unique visitors · {hours}h</div></div>
+            <div className={`kpi ${totals.overstays > 0 ? "amber" : ""}`}><div className="v">{fmtNum(totals.overstays)}</div><div className="l">Overstays · {hours}h</div></div>
+            <div className="kpi"><div className="v">{fmtDuration(overallAvgDuration)}</div><div className="l">Avg visit duration · {hours}h</div></div>
+            <div className="kpi"><div className="v">{lastRow ? fmtNum(lastRow.visitors) : "—"}</div><div className="l">Visitors · latest hour</div></div>
           </div>
           <section className="panel chart-card" aria-label="Traffic chart">
             <div style={{ width: "100%", height: 440 }}>
@@ -128,19 +145,28 @@ export default function SiteDetail({ params }: { params: { deviceId: string } })
                   <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} />
                   <XAxis dataKey="t" stroke={ct.axis} fontSize={12} tickLine={false} minTickGap={40} />
                   <YAxis stroke={ct.axis} fontSize={12} tickLine={false} allowDecimals={false} />
+                  <YAxis
+                    yAxisId="dur"
+                    orientation="right"
+                    stroke={ct.axis}
+                    fontSize={12}
+                    tickLine={false}
+                    allowDecimals={false}
+                    tickFormatter={(v: number) => fmtDuration(v)}
+                  />
                   <Tooltip
                     contentStyle={{ background: ct.tooltipBg, border: `1px solid ${ct.tooltipBorder}`, borderRadius: 10 }}
                     labelStyle={{ color: ct.axis }}
                     itemStyle={{ color: ct.axis }}
                   />
                   <Legend />
-                  <Line type="monotone" dataKey="checkins" name="Check-ins" stroke="#22c55e" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="checkouts" name="Check-outs" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="inside" name="Inside" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="visitors" name="Unique visitors" stroke="#22c55e" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="overstays" name="Overstays" stroke="#ef4444" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="avgDurationS" name="Avg duration (s)" stroke="#f59e0b" strokeWidth={2} dot={false} yAxisId="dur" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <div className="meta">Hourly aggregates from ThingsBoard (SUM, 1-hour interval).</div>
+            <div className="meta">Hourly aggregates from ThingsBoard (SUM for counters, AVG for duration).</div>
           </section>
           {(prev || next) && (
             <div className="toolbar" style={{ justifyContent: "space-between" }}>

@@ -13,14 +13,9 @@ export const TB_OFFLINE_AFTER_S = Number(process.env.TB_OFFLINE_AFTER_S || "90")
 
 export const TELEMETRY_KEYS = [
   "site_id",
-  "count_in",
-  "count_out",
-  "occupancy",
-  "total_visitors",
-  "ambiguous_pending",
-  "pipeline_running",
-  "avg_fps",
-  "uptime_s",
+  "uniq_visitor",
+  "overstay_count",
+  "avg_duration_s",
 ] as const;
 
 export interface TbDevice {

@@ -2,20 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "./components/AppShell";
-import { fmtNum, fmtTime, fmtUptime, type Site, type SitesResp } from "./components/types";
+import { fmtDuration, fmtNum, fmtTime, type Site, type SitesResp } from "./components/types";
 
 type View = "table" | "cards";
-type SortKey = "status" | "name" | "in" | "inside";
+type SortKey = "status" | "name" | "visitors" | "overstay";
 
 function sortSites(list: Site[], key: SortKey): Site[] {
   const arr = [...list];
   switch (key) {
     case "name":
       return arr.sort((a, b) => a.name.localeCompare(b.name));
-    case "in":
-      return arr.sort((a, b) => (b.metrics?.count_in ?? -1) - (a.metrics?.count_in ?? -1));
-    case "inside":
-      return arr.sort((a, b) => (b.metrics?.occupancy ?? -1) - (a.metrics?.occupancy ?? -1));
+    case "visitors":
+      return arr.sort((a, b) => (b.metrics?.uniq_visitor ?? -1) - (a.metrics?.uniq_visitor ?? -1));
+    case "overstay":
+      return arr.sort((a, b) => (b.metrics?.overstay_count ?? -1) - (a.metrics?.overstay_count ?? -1));
     case "status":
     default:
       return arr.sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
@@ -95,9 +95,9 @@ export default function OverviewPage() {
               <div className="l">Sites online</div>
               {agg.offlineSites > 0 && <div className="l danger">{agg.offlineSites} offline</div>}
             </div>
-            <div className="kpi"><div className="v">{fmtNum(agg.count_in)}</div><div className="l">Check-ins \u00b7 today</div></div>
-            <div className="kpi"><div className="v">{fmtNum(agg.occupancy)}</div><div className="l">Inside \u00b7 all sites</div></div>
-            <div className={`kpi ${agg.ambiguous_pending > 0 ? "amber" : ""}`}><div className="v">{fmtNum(agg.ambiguous_pending)}</div><div className="l">Pending review</div></div>
+            <div className="kpi"><div className="v">{fmtNum(agg.uniq_visitor)}</div><div className="l">Unique visitors · all sites</div></div>
+            <div className={`kpi ${agg.overstay_count > 0 ? "amber" : ""}`}><div className="v">{fmtNum(agg.overstay_count)}</div><div className="l">Overstays · all sites</div></div>
+            <div className="kpi"><div className="v">{fmtDuration(agg.avg_duration_s)}</div><div className="l">Avg visit duration</div></div>
           </div>
         </section>
       )}
@@ -111,8 +111,8 @@ export default function OverviewPage() {
             <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className="search" style={{ minWidth: 0 }} aria-label="Sort sites">
               <option value="status">Sort: status</option>
               <option value="name">Sort: name</option>
-              <option value="in">Sort: check-ins</option>
-              <option value="inside">Sort: inside now</option>
+              <option value="visitors">Sort: unique visitors</option>
+              <option value="overstay">Sort: overstays</option>
             </select>
             <label className="check">
               <input type="checkbox" checked={onlineOnly} onChange={(e) => setOnlineOnly(e.target.checked)} />
@@ -130,8 +130,8 @@ export default function OverviewPage() {
               <table className="tbl">
                 <thead>
                   <tr>
-                    <th>Status</th><th>Site</th><th>In / Out</th><th>Inside</th>
-                    <th>Pending</th><th>Pipeline</th><th>Last seen</th><th></th>
+                    <th>Status</th><th>Site</th><th>Unique visitors</th><th>Overstays</th>
+                    <th>Avg duration</th><th>Last seen</th><th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -139,10 +139,9 @@ export default function OverviewPage() {
                     <tr key={s.deviceId} className={s.online ? "" : "row-off"}>
                       <td><span className={`badge ${s.online ? "on" : "off"}`}>{s.online ? "\u25cf ONLINE" : "\u25cf OFFLINE"}</span></td>
                       <td><div className="site-name">{s.name}</div>{s.label && <div className="site-sub">{s.label}</div>}</td>
-                      <td className="num">{s.metrics ? `${s.metrics.count_in} / ${s.metrics.count_out}` : "\u2014"}</td>
-                      <td className="num">{s.metrics ? s.metrics.occupancy : "\u2014"}</td>
-                      <td className="num">{s.metrics ? s.metrics.ambiguous_pending : "\u2014"}</td>
-                      <td>{s.metrics ? (s.metrics.pipeline_running ? "Running" : "Stopped") : "\u2014"}</td>
+                      <td className="num">{s.metrics ? fmtNum(s.metrics.uniq_visitor) : "\u2014"}</td>
+                      <td className="num">{s.metrics ? fmtNum(s.metrics.overstay_count) : "\u2014"}</td>
+                      <td className="num">{s.metrics ? fmtDuration(s.metrics.avg_duration_s) : "\u2014"}</td>
                       <td className="num" style={{ whiteSpace: "nowrap" }}>{fmtTime(s.lastSeen)}{s.latencyMs != null ? ` \u00b7 ${s.latencyMs}ms` : ""}</td>
                       <td><a className="link-btn" href={`/site/${s.deviceId}`}>View \u2192</a></td>
                     </tr>
@@ -165,10 +164,9 @@ export default function OverviewPage() {
                     <div className="meta">Last seen: {fmtTime(s.lastSeen)}{s.latencyMs != null ? ` \u00b7 ${s.latencyMs}ms` : ""}</div>
                     {s.metrics && (
                       <dl className="metrics">
-                        <div><dt>Check-in / out</dt><dd>{s.metrics.count_in} / {s.metrics.count_out}</dd></div>
-                        <div><dt>Inside now</dt><dd>{s.metrics.occupancy}</dd></div>
-                        <div><dt>Pending review</dt><dd>{s.metrics.ambiguous_pending}</dd></div>
-                        <div><dt>FPS / Uptime</dt><dd>{s.metrics.avg_fps} / {fmtUptime(s.metrics.uptime_s)}</dd></div>
+                        <div><dt>Unique visitors</dt><dd>{fmtNum(s.metrics.uniq_visitor)}</dd></div>
+                        <div><dt>Overstays</dt><dd>{fmtNum(s.metrics.overstay_count)}</dd></div>
+                        <div><dt>Avg visit duration</dt><dd>{fmtDuration(s.metrics.avg_duration_s)}</dd></div>
                       </dl>
                     )}
                     <a className="btn" href={`/site/${s.deviceId}`}>View 24h details \u2192</a>

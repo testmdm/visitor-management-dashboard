@@ -13,10 +13,15 @@ import { getSessionTokens, tbRefresh } from "@/lib/session";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const KEYS = ["count_in", "count_out", "occupancy"] as const;
+const KEYS = ["uniq_visitor", "overstay_count", "avg_duration_s"] as const;
 
 function isUnauthorized(e: unknown): boolean {
   return axios.isAxiosError(e) && e.response?.status === 401;
+}
+
+/** Per-bucket aggregation: sums for counters, mean for the duration average. */
+function aggFor(key: string): string {
+  return key === "avg_duration_s" ? "AVG" : "SUM";
 }
 
 export async function GET(
@@ -34,14 +39,19 @@ export async function GET(
   const startTs = endTs - hours * 3600 * 1000;
 
   async function load(t: string) {
-    const data = await historyTelemetry(t, params.deviceId, KEYS, startTs, endTs, 3600000, "SUM");
+    // One request per key so each can use its own aggregation (SUM vs AVG).
+    const results = await Promise.all(
+      KEYS.map((k) =>
+        historyTelemetry(t, params.deviceId, [k], startTs, endTs, 3600000, aggFor(k))
+      )
+    );
     const series: Record<string, { ts: number; value: number }[]> = {};
-    for (const k of KEYS) {
-      const arr = (data?.[k] ?? []) as { ts: number; value: string }[];
+    KEYS.forEach((k, i) => {
+      const arr = (results[i]?.[k] ?? []) as { ts: number; value: string }[];
       series[k] = arr
         .map((p) => ({ ts: p.ts, value: Number(p.value) || 0 }))
         .sort((a, b) => a.ts - b.ts);
-    }
+    });
     return NextResponse.json({
       ok: true,
       deviceId: params.deviceId,

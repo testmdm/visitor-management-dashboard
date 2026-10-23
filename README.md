@@ -43,9 +43,22 @@ npm run dev                  # http://localhost:3001
 Online = the device\u2019s latest telemetry is younger than `TB_OFFLINE_AFTER_S`
 seconds. A site whose backend stops pushing telemetry automatically shows \u25cf OFFLINE.
 
+## Telemetry keys displayed
+
+Each site device must publish these telemetry keys:
+
+| Key | Meaning |
+| --- | --- |
+| `uniq_visitor` | Unique visitors (counter) |
+| `overstay_count` | Overstay events (counter) |
+| `avg_duration_s` | Average visit duration, seconds |
+
+(`site_id` is still read as an optional identifier; online/offline status is
+derived from the newest telemetry timestamp across those keys.)
+
 ## ThingsBoard prerequisites
 
-See `../visitor-ai-enterprise/docs/THINGSBOARD_SETUP_CE.md`:
+See the ThingsBoard setup doc:
 create one device per site (type `visitor-site`), copy its token into the
 site backend config, and create a read-only user with the devices shared to
 its customer.
