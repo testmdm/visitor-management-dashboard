@@ -1,13 +1,8 @@
 export interface SiteMetrics {
   site_id: string;
-  count_in: number;
-  count_out: number;
-  occupancy: number;
-  total_visitors: number;
-  ambiguous_pending: number;
-  pipeline_running: boolean;
-  avg_fps: number;
-  uptime_s: number;
+  uniq_visitor: number;
+  overstay_count: number;
+  avg_duration_s: number;
 }
 
 export interface Site {
@@ -31,11 +26,9 @@ export interface SitesResp {
     totalSites: number;
     onlineSites: number;
     offlineSites: number;
-    count_in: number;
-    count_out: number;
-    occupancy: number;
-    total_visitors: number;
-    ambiguous_pending: number;
+    uniq_visitor: number;
+    overstay_count: number;
+    avg_duration_s: number;
   };
   sites?: Site[];
 }
@@ -47,6 +40,16 @@ export function fmtUptime(s: number): string {
   if (h >= 48) return `${Math.floor(h / 24)}d ${h % 24}h`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+/** Human duration for avg visit time, e.g. 3725 -> "1h 02m", 480 -> "8m" */
+export function fmtDuration(s: number): string {
+  if (!s || s <= 0 || !Number.isFinite(s)) return "—";
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  if (m > 0) return `${m}m`;
+  return `${Math.round(s)}s`;
 }
 
 export function fmtTime(ts: number | null): string {

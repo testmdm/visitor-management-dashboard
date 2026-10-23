@@ -115,28 +115,26 @@ export async function GET() {
         error: null as string | null,
         metrics: {
           site_id: str(ts["site_id"], device.name),
-          count_in: num(ts["count_in"]),
-          count_out: num(ts["count_out"]),
-          occupancy: num(ts["occupancy"]),
-          total_visitors: num(ts["total_visitors"]),
-          ambiguous_pending: num(ts["ambiguous_pending"]),
-          pipeline_running: str(ts["pipeline_running"], "false") === "true",
-          avg_fps: num(ts["avg_fps"]),
-          uptime_s: num(ts["uptime_s"]),
+          uniq_visitor: num(ts["uniq_visitor"]),
+          overstay_count: num(ts["overstay_count"]),
+          avg_duration_s: num(ts["avg_duration_s"]),
         },
       };
     });
 
     const up = sites.filter((s) => s.online);
+    const withDuration = up.filter((s) => (s.metrics?.avg_duration_s ?? 0) > 0);
     const agg = {
       totalSites: sites.length,
       onlineSites: up.length,
       offlineSites: sites.length - up.length,
-      count_in: up.reduce((a, s) => a + (s.metrics?.count_in ?? 0), 0),
-      count_out: up.reduce((a, s) => a + (s.metrics?.count_out ?? 0), 0),
-      occupancy: up.reduce((a, s) => a + (s.metrics?.occupancy ?? 0), 0),
-      total_visitors: up.reduce((a, s) => a + (s.metrics?.total_visitors ?? 0), 0),
-      ambiguous_pending: up.reduce((a, s) => a + (s.metrics?.ambiguous_pending ?? 0), 0),
+      uniq_visitor: up.reduce((a, s) => a + (s.metrics?.uniq_visitor ?? 0), 0),
+      overstay_count: up.reduce((a, s) => a + (s.metrics?.overstay_count ?? 0), 0),
+      // Average of per-site averages (weighted by sites reporting a duration).
+      avg_duration_s:
+        withDuration.length > 0
+          ? Math.round(withDuration.reduce((a, s) => a + (s.metrics?.avg_duration_s ?? 0), 0) / withDuration.length)
+          : 0,
     };
 
     return NextResponse.json({
